@@ -25,6 +25,22 @@ def scroll_and_load(driver, scroll_pause_time=2) -> int:
     
     return 0
 
+def get_email(driver, company) -> str:
+    search_url = f'https://www.google.com/search?q={company}+email&hl=zh-TW'
+    email = ''
+
+    
+
+    return email
+
+def print_company_info(company):
+    print(Style.BRIGHT + '<company> ' + Fore.LIGHTWHITE_EX + company['公司名稱'])
+    print(Style.BRIGHT + '<website> ' + Fore.LIGHTCYAN_EX + company['網站'])
+    print(Style.BRIGHT + '<score>   ' + Fore.YELLOW + company['Google評分'])
+    print(Style.BRIGHT + '<address> ' + Fore.MAGENTA + company['地址'])
+    print(Style.BRIGHT + '<email>   ' + Fore.LIGHTYELLOW_EX + company['E-mail'])
+    print(Style.BRIGHT + '<phone>   ' + Fore.LIGHTGREEN_EX + company['電話'])
+
 
 init(autoreset=True)
 
@@ -47,6 +63,7 @@ while len(results) <= 20:
     companies_info = driver.find_elements(By.CLASS_NAME, 'Nv2PK')
 
     for company_info in companies_info:
+        # Advertise Message
         try: 
             sponser = company_info.find_element(By.CLASS_NAME, 'kpih0e')
             continue
@@ -69,8 +86,11 @@ while len(results) <= 20:
 
         address_info = company_info.find_elements(By.CLASS_NAME, 'W4Efsd')[2].text.split('·')
 
+        # company's type
         classification = address_info[0]
         address = "".join(address_info[-1].split())
+
+        email = get_email(driver, company)
 
         try:
             phone = company_info.find_element(By.CLASS_NAME, 'UsdlK').text
@@ -82,14 +102,11 @@ while len(results) <= 20:
             "網站": url,
             "Google評分": score,
             "地址": address,
+            "E-mail": email,
             "電話": phone
         }
 
-        print(Style.BRIGHT + '<company> ' + Fore.LIGHTWHITE_EX + name)
-        print(Style.BRIGHT + '<website> ' + Fore.LIGHTCYAN_EX + url)
-        print(Style.BRIGHT + '<score>   ' + Fore.YELLOW + score)
-        print(Style.BRIGHT + '<address> ' + Fore.MAGENTA + address)
-        print(Style.BRIGHT + '<phone>   ' + Fore.LIGHTGREEN_EX + phone)
+        print_company_info(company)
         print('\n')
 
         if not company in results:
