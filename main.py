@@ -1,117 +1,105 @@
+from time import sleep
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options as chromeOptions
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.keys import Keys
-from bs4 import BeautifulSoup
+from selenium.common.exceptions import NoSuchElementException
+from colorama import init, Fore, Back, Style
 import chromedriver_autoinstaller
 import pandas as pd
-import time
-import re
 
-taiwan_address_pattern_advanced = re.compile(
-    r"""
-    (?P<county>[^市縣]{1,3}(?:市|縣))\s*           # 縣市，如「台北市」
-    (?P<district>[^鄉鎮市區]{1,3}[鄉鎮市區])?\s*    # 鄉鎮市區，如「中正區」
-    (?P<street>[^路街段巷弄號樓F\d]{1,}(?:路|街|段))?\s* # 街道和段，如「中山北路二段」
-    (?P<alley>[^弄號樓F\d]{1,}(?:巷))?\s*         # 巷，如「34巷」
-    (?P<lane>[^號樓F\d]{1,}(?:弄))?\s*            # 弄，如「8弄」
-    (?P<number>\d+(?:-\d+)?號(?:[A-Za-z])?)?\s*    # 號碼，支持19-6號、12號A
-    (?P<floor>(?:[之]*\d*[樓Ff](?:之\d+)?))?\s*   # 樓層，支持「3樓」、「10F」、「3樓之1」
-    (?:\((?P<additional_info>[^)]+)\))?           # 附加信息，如「南港軟體工業園區」
-    """, re.VERBOSE
-)
-phone_fax_pattern = re.compile(
-    r"""
-    (?:(?:\b(?:電話|TEL|Tel|tel)\b[:\s]*)|    # 電話的上下文
-    (?:\b(?:傳真|FAX|Fax|fax)\b[:\s]*))?      # 傳真的上下文
-    (
-        (?:\+886\s?)?                           # 國際區碼
-        (?:\(?(0\d{1,4})\)?[\s\-]?)?            # 區碼
-        \d{1,4}[\s\-]?\d{1,4}(?:[\s\-]?\d{1,4})? # 號碼段
-        |                                       # 或者
-        09\d{2}[\s\-]?\d{3}[\s\-]?\d{3}         # 手機號碼
-    )
-    """, re.VERBOSE
-)
-simple_email_pattern = re.compile(
-    r"""
-    # 本地部分
-    [a-zA-Z0-9._%+-]+
-    @
-    # 域名部分
-    [a-zA-Z0-9.-]+\.[a-zA-Z]{2,}
-    """, re.VERBOSE
-)
+
+def scroll_and_load(driver, scroll_pause_time=2) -> int:
+    scroll_element = driver.find_elements(By.CLASS_NAME, 'ecceSd')[1]
+
+    last_height = driver.execute_script("return arguments[0].scrollHeight", scroll_element)
+    
+    driver.execute_script("arguments[0].scrollTop = arguments[0].scrollHeight", scroll_element)
+    sleep(scroll_pause_time)
+
+    new_height = driver.execute_script("return arguments[0].scrollHeight", scroll_element)
+        
+    if new_height == last_height: # 代表不能再往下滾動了
+        return 1
+    
+    return 0
+
+
+init(autoreset=True)
 
 keyword = "展覽設計公司"
-search_url = f"https://www.google.com/search?q={keyword}"
+map_search_url = f"https://www.google.com.tw/maps/search/{keyword}"
 
 chrome_option = chromeOptions()
 chrome_option.add_argument('--log-level=3')
 chrome_option.add_argument('--headless') 
+# chrome_option.add_argument('--start-maximized') 
 chromedriver_autoinstaller.install()
 driver = webdriver.Chrome(options=chrome_option)
 
-driver.get(search_url)
+driver.get(map_search_url)
 WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, 'body')))
 
-page_content = driver.page_source
-soup = BeautifulSoup(page_content, 'html.parser')
+results = []
 
-search_results = soup.find_all('div', class_='g') 
-data = []
+while len(results) <= 20:
+    companies_info = driver.find_elements(By.CLASS_NAME, 'Nv2PK')
 
-for result in search_results:
-    company_name = result.find('span', class_='VuuXrf')
-    link = result.find('a')['href']
+    for company_info in companies_info:
+        try: 
+            sponser = company_info.find_element(By.CLASS_NAME, 'kpih0e')
+            continue
+        except NoSuchElementException as e:
+            pass
 
-    print(f'<company> {company_name}')
-    print(f'<link> {link}')
+        company_info = company_info.find_element(By.CLASS_NAME, 'lI9IFe')
 
-    driver.get(link)
-    WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, 'body')))
+        try:
+            url = company_info.find_element(By.TAG_NAME, 'a').get_attribute('href')
+        except NoSuchElementException as e:
+            url = 'null'
 
-    company_page = driver.page_source
-    company_soup = BeautifulSoup(company_page, 'html.parser')
-    company_text_content = company_soup.get_text(separator='\n')
+        name = company_info.find_element(By.CLASS_NAME, 'qBF1Pd').text
 
-    addresses = taiwan_address_pattern_advanced.findall(company_text_content)
-    phones = phone_fax_pattern.findall(company_text_content)
-    emails = simple_email_pattern.findall(company_text_content)
+        try:
+            score = company_info.find_element(By.CLASS_NAME, 'MW4etd').text
+        except NoSuchElementException as e:
+            score = 'no comments'
 
-    addresses = list(set(addresses))
-    phones = list(set(phones))
-    emails = list(set(emails))
+        address_info = company_info.find_elements(By.CLASS_NAME, 'W4Efsd')[2].text.split('·')
 
-    company_info = {
-        "公司名稱": company_name.text if company_name else "",
-        "網址": link,
-        "地址": addresses, 
-        "電話": phones,  
-        "Email": emails,  
-    }
+        classification = address_info[0]
+        address = "".join(address_info[-1].split())
 
-    data.append(company_info)
+        try:
+            phone = company_info.find_element(By.CLASS_NAME, 'UsdlK').text
+        except NoSuchElementException as e:
+            phone = 'null'
 
-driver.quit()
+        company = {
+            "公司名稱": name,
+            "網站": url,
+            "Google評分": score,
+            "地址": address,
+            "電話": phone
+        }
 
-df = pd.DataFrame(data)
+        print(Style.BRIGHT + '<company> ' + Fore.LIGHTWHITE_EX + name)
+        print(Style.BRIGHT + '<website> ' + Fore.LIGHTCYAN_EX + url)
+        print(Style.BRIGHT + '<score>   ' + Fore.YELLOW + score)
+        print(Style.BRIGHT + '<address> ' + Fore.MAGENTA + address)
+        print(Style.BRIGHT + '<phone>   ' + Fore.LIGHTGREEN_EX + phone)
+        print('\n')
+
+        if not company in results:
+            results.append(company)
+
+    if scroll_and_load(driver, 2):
+        break
+
+
+driver.close()
+
+df = pd.DataFrame(results)
 df.to_excel('展覽設計公司.xlsx', index=False)
-
-
-
-# num_pages = 5  # 需要抓取的页面数量
-# for page in range(num_pages):
-#     print(f"正在处理第 {page + 1} 页...")
-#     # links = extract_links()
-#     # all_links.update(links)
-#     try:
-#         # 点击下一页
-#         next_button = driver.find_element(By.ID, 'pnnext')
-#         next_button.click()
-#         time.sleep(2)  # 等待页面加载
-#     except Exception as e:
-#         print("没有更多页面了。")
-#         break
