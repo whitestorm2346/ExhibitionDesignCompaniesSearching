@@ -8,6 +8,7 @@ from selenium.common.exceptions import NoSuchElementException
 from colorama import init, Fore, Back, Style
 import chromedriver_autoinstaller
 import pandas as pd
+import re
 
 
 def scroll_and_load(driver, scroll_pause_time=2) -> int:
@@ -25,13 +26,31 @@ def scroll_and_load(driver, scroll_pause_time=2) -> int:
     
     return 0
 
-def get_email(driver, company) -> str:
-    search_url = f'https://www.google.com/search?q={company}+email&hl=zh-TW'
-    email = ''
+def get_emails(driver, url):
+    email_regex = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+    emails = []
+    
+    driver.get(url)
+    WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, 'body')))
 
+    # find email in footer
+
+    footer = driver.find_element(By.TAG_NAME, 'footer')
+    emails = re.findall(email_regex, footer.text)
+
+    email_elements = WebDriverWait(driver, 2).until(
+        EC.presence_of_all_elements_located((By.XPATH, '//a[contains(@href, "mailto:")]'))
+    )
+
+    # find email in contact page
+
+    contact_links = WebDriverWait(driver, 2).until(
+        EC.presence_of_all_elements_located((By.XPATH, 
+        '//a[contains(@href, "contact_us") or contains(@href, "info") or contains(@href, "contact") or contains(@href, "contacts")]'))
+    )
     
 
-    return email
+    return emails
 
 def print_company_info(company):
     print(Style.BRIGHT + '<company> ' + Fore.LIGHTWHITE_EX + company['公司名稱'])
@@ -75,7 +94,7 @@ while len(results) <= 20:
         try:
             url = company_info.find_element(By.TAG_NAME, 'a').get_attribute('href')
         except NoSuchElementException as e:
-            url = 'null'
+            continue # if the company dont have the page
 
         name = company_info.find_element(By.CLASS_NAME, 'qBF1Pd').text
 
@@ -90,7 +109,10 @@ while len(results) <= 20:
         classification = address_info[0]
         address = "".join(address_info[-1].split())
 
-        email = get_email(driver, company)
+        emails = get_emails(driver, name, url)
+
+        if emails == []:
+            continue
 
         try:
             phone = company_info.find_element(By.CLASS_NAME, 'UsdlK').text
@@ -102,7 +124,7 @@ while len(results) <= 20:
             "網站": url,
             "Google評分": score,
             "地址": address,
-            "E-mail": email,
+            "E-mail": emails,
             "電話": phone
         }
 
