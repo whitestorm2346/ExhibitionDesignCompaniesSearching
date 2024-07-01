@@ -4,14 +4,14 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options as chromeOptions
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import NoSuchElementException, StaleElementReferenceException
+from selenium.common.exceptions import NoSuchElementException, StaleElementReferenceException, TimeoutException
 from colorama import init, Fore, Back, Style
 import chromedriver_autoinstaller
 import pandas as pd
 import re
 
 
-def scroll_and_load(driver, scroll_pause_time=2) -> int:
+def scroll_and_load(driver, scroll_pause_time=1) -> int:
     scroll_element = driver.find_elements(By.CLASS_NAME, 'ecceSd')[1]
 
     last_height = driver.execute_script("return arguments[0].scrollHeight", scroll_element)
@@ -26,21 +26,15 @@ def scroll_and_load(driver, scroll_pause_time=2) -> int:
     
     return 0
 
-def extract_substring(text):
-    colon_index = text.find(':')
-    question_index = text.find('?')
-    
-    if colon_index != -1 and question_index != -1 and colon_index < question_index:
-        return text[colon_index + 1:question_index].strip()
-    elif colon_index != -1:
-        return text[colon_index + 1:].strip()
-    elif question_index != -1:
-        return text[:question_index].strip()
-    else:
-        return text.strip()
-
 def get_emails(driver, url):
-    email_regex = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+    email_regex = r"""
+        (?:[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+)*
+        |"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]
+        |\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")
+        @
+        (?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+
+        [a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?
+        """
     emails = []
 
     if 'www.facebook.com' in url:
@@ -48,9 +42,9 @@ def get_emails(driver, url):
         WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, 'body')))
 
         try:
-            close_btn = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CSS_SELECTOR, '[aria-label="選項"]')))
+            close_btn = WebDriverWait(driver, 3).until(EC.presence_of_element_located((By.CSS_SELECTOR, '[aria-label="關閉"]')))
             close_btn.click()
-        except NoSuchElementException as e:
+        except TimeoutException as e:
             pass
 
         try:
@@ -58,7 +52,6 @@ def get_emails(driver, url):
             emails = re.findall(email_regex, infos.text)
         except NoSuchElementException as e:
             pass
-
     else:
         driver.get(url)
         WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, 'body')))
@@ -69,7 +62,7 @@ def get_emails(driver, url):
             emails = driver.find_elements(By.XPATH, '//a[contains(@href, "mailto:")]')
             emails = [email.get_attribute('href') for email in emails]
         except NoSuchElementException as e:
-            emails = re.findall(email_regex, driver.text)
+            emails = re.findall(email_regex, driver.page_source)
 
         # find email in contact page
 
@@ -88,9 +81,9 @@ def get_emails(driver, url):
                     emails = driver.find_elements(By.XPATH, '//a[contains(@href, "mailto:")]')
                     emails = [email.get_attribute('href') for email in emails]
                 except NoSuchElementException as e:
-                    emails = re.findall(email_regex, driver.text)
+                    emails = re.findall(email_regex, driver.page_source)
 
-    emails = list(set([extract_substring(email) for email in emails]))
+    emails = list(set([re.findall(email_regex, email)[0] for email in emails]))
 
     return emails
 
@@ -112,17 +105,17 @@ map_search_url = f"https://www.google.com.tw/maps/search/{keyword}"
 
 chrome_option = chromeOptions()
 chrome_option.add_argument('--log-level=3')
-chrome_option.add_argument('--headless') 
-# chrome_option.add_argument('--start-maximized') 
+# chrome_option.add_argument('--headless') 
+chrome_option.add_argument('--start-maximized') 
 chromedriver_autoinstaller.install()
 driver = webdriver.Chrome(options=chrome_option)
 
 driver.get(map_search_url)
 WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, 'body')))
 
-results = []
+companies = []
 
-while len(results) <= 50:
+while len(companies) <= 50:
     companies_info = driver.find_elements(By.CLASS_NAME, 'Nv2PK')
 
     for company_info in companies_info:
@@ -138,7 +131,7 @@ while len(results) <= 50:
         try:
             url = company_info.find_element(By.TAG_NAME, 'a').get_attribute('href')
         except NoSuchElementException as e:
-            continue # if the company dont have the page
+            continue # if the company does not have the website
 
         name = company_info.find_element(By.CLASS_NAME, 'qBF1Pd').text
 
@@ -167,18 +160,22 @@ while len(results) <= 50:
             "地址": address
         }
 
-        if not company in results:
-            results.append(company)
+        if not company in companies:
+            companies.append(company)
 
-    if scroll_and_load(driver, 2):
+    if scroll_and_load(driver):
         break
 
+results = []
 
-for company in results:
+for company in companies:
     company['E-mail'] = get_emails(driver, company['網站'])
 
     print_company_info(company)
     print('\n')
+
+    if not company['E-mail'] == []:
+        results.append(company)
 
 
 driver.close()
