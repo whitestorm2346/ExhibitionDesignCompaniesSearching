@@ -1,4 +1,5 @@
 from time import sleep
+from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options as chromeOptions
@@ -10,6 +11,14 @@ import chromedriver_autoinstaller
 import pandas as pd
 import re
 
+email_regex = r"""
+    (?:[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+)*
+    |"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]
+    |\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")
+    @
+    (?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+
+    [a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?
+"""
 
 def scroll_and_load(driver, scroll_pause_time=1) -> int:
     scroll_element = driver.find_elements(By.CLASS_NAME, 'ecceSd')[1]
@@ -26,20 +35,75 @@ def scroll_and_load(driver, scroll_pause_time=1) -> int:
     
     return 0
 
+def extract_email(email):
+    
+    extracted_email = re.findall(email_regex, email, re.VERBOSE)
+
+    if extracted_email == []:
+        return ""
+    else:
+        return extracted_email[0]
+    
+def get_pseudo_content(driver, element, pseudo):
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            return driver.execute_script("""
+                var element = arguments[0];
+                var pseudoElement = arguments[1];
+                var content = window.getComputedStyle(element, pseudoElement).getPropertyValue('content');
+                return content;
+                """, element, pseudo)
+        except StaleElementReferenceException:
+            sleep(1)
+    return None
+
+def scan_page_for_email(driver, url):
+    driver.get(url)
+    WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, 'body')))
+    driver.implicitly_wait(3)
+
+    page_source = driver.page_source
+    soup = BeautifulSoup(page_source, 'html.parser')
+    page_text = soup.get_text(separator="\n")
+
+    emails = []
+    emails.extend(re.findall(email_regex, page_text, re.VERBOSE))
+
+    if emails == []:
+        elements = driver.find_elements(By.CSS_SELECTOR, '*')
+
+        for element in elements:
+            for pseudo in ['::before', '::after']:
+                for i in range(3):
+                    try:
+                        pseudo_content = driver.execute_script("""
+                            var element = arguments[0];
+                            var pseudoElement = arguments[1];
+                            var content = window.getComputedStyle(element, pseudoElement).getPropertyValue('content');
+                            return content;
+                            """, element, pseudo)
+                        break
+                    except StaleElementReferenceException as e:
+                        pass
+                    
+                if pseudo_content and pseudo_content != 'none':
+                    emails.extend(re.findall(email_regex, pseudo_content, re.VERBOSE))
+                
+
+    if emails == []:
+        emails = driver.find_elements(By.XPATH, '//a[contains(@href, "mailto:")]')
+        emails = [email.get_attribute('href') for email in emails]
+
+    return emails
+
 def get_emails(driver, url):
-    email_regex = r"""
-        (?:[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+)*
-        |"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]
-        |\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")
-        @
-        (?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+
-        [a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?
-        """
     emails = []
 
     if 'www.facebook.com' in url:
         driver.get(url)
         WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, 'body')))
+        driver.implicitly_wait(3)
 
         try:
             close_btn = WebDriverWait(driver, 3).until(EC.presence_of_element_located((By.CSS_SELECTOR, '[aria-label="關閉"]')))
@@ -49,20 +113,13 @@ def get_emails(driver, url):
 
         try:
             infos = driver.find_elements(By.CLASS_NAME, 'xieb3on')[0]
-            emails = re.findall(email_regex, infos.text)
-        except NoSuchElementException as e:
+            emails = re.findall(email_regex, infos.text, re.VERBOSE)
+        except Exception as e:
             pass
     else:
-        driver.get(url)
-        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, 'body')))
-
         # find email in main page
 
-        try:
-            emails = driver.find_elements(By.XPATH, '//a[contains(@href, "mailto:")]')
-            emails = [email.get_attribute('href') for email in emails]
-        except NoSuchElementException as e:
-            emails = re.findall(email_regex, driver.page_source)
+        emails = scan_page_for_email(driver, url)
 
         # find email in contact page
 
@@ -75,15 +132,9 @@ def get_emails(driver, url):
                 except StaleElementReferenceException as e:
                     continue
 
-                driver.get(link)
+                emails.extend(scan_page_for_email(driver, link))
 
-                try:
-                    emails = driver.find_elements(By.XPATH, '//a[contains(@href, "mailto:")]')
-                    emails = [email.get_attribute('href') for email in emails]
-                except NoSuchElementException as e:
-                    emails = re.findall(email_regex, driver.page_source)
-
-    emails = list(set([re.findall(email_regex, email)[0] for email in emails]))
+    emails = list(set([extract_email(email) for email in emails]))
 
     return emails
 
@@ -105,8 +156,9 @@ map_search_url = f"https://www.google.com.tw/maps/search/{keyword}"
 
 chrome_option = chromeOptions()
 chrome_option.add_argument('--log-level=3')
-# chrome_option.add_argument('--headless') 
-chrome_option.add_argument('--start-maximized') 
+chrome_option.add_argument('--headless') 
+# chrome_option.add_argument('--start-maximized') 
+chrome_option.add_argument("--retry-on-network-failure")
 chromedriver_autoinstaller.install()
 driver = webdriver.Chrome(options=chrome_option)
 
@@ -115,7 +167,7 @@ WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, 'bo
 
 companies = []
 
-while len(companies) <= 50:
+while len(companies) <= 200:
     companies_info = driver.find_elements(By.CLASS_NAME, 'Nv2PK')
 
     for company_info in companies_info:
@@ -174,7 +226,7 @@ for company in companies:
     print_company_info(company)
     print('\n')
 
-    if not company['E-mail'] == []:
+    if company['E-mail'] != []:
         results.append(company)
 
 
