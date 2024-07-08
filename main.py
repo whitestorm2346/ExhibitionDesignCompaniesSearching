@@ -164,8 +164,10 @@ driver = webdriver.Chrome(options=chrome_option)
 
 driver.get(map_search_url)
 WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, 'body')))
+print(Fore.YELLOW + 'Web driver finished setting')
 
 companies = []
+print(Fore.YELLOW + 'Start searching...')
 
 while len(companies) <= 200:
     companies_info = driver.find_elements(By.CLASS_NAME, 'Nv2PK')
@@ -213,6 +215,9 @@ while len(companies) <= 200:
         }
 
         if not company in companies:
+            print_company_info(company)
+            print('\n')
+
             companies.append(company)
 
     if scroll_and_load(driver):
@@ -233,4 +238,4 @@ for company in companies:
 driver.close()
 
 df = pd.DataFrame(results)
-df.to_excel('展覽設計公司.xlsx', index=False)
+df.to_excel(f'{keyword}.xlsx', index=False)
