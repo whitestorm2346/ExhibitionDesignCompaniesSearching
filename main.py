@@ -7,6 +7,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchElementException, StaleElementReferenceException, TimeoutException
 from colorama import init, Fore, Back, Style
+from tkinter import *
+from tkinter import ttk
 import chromedriver_autoinstaller
 import pandas as pd
 import re
@@ -149,9 +151,70 @@ def print_company_info(company):
     print(Style.BRIGHT + '<address> ' + Fore.MAGENTA + company['地址'])
 
 
+ENGLISH = 'Times New Roman'
+CHINESE = '微軟正黑體'
+keyword = ''
+
+class KeywordInputForm:
+    def __init__(self) -> None:
+        self.__init_root__()
+        self.__init_keyword_frame__()
+        self.__init_buttons__()
+
+    def __send_button_onclick__(self):
+        # TODO: implement the empty value checking
+        global keyword
+        keyword = self.keyword_input.get()
+        print('send button onclick')
+        self.root.destroy()
+
+    def __init_root__(self):
+        self.root = Tk()
+        self.root.resizable(False, False)
+        self.root.geometry("250x200")
+        self.root.title('Keyword Input')
+
+    def __init_keyword_frame__(self):
+        self.keyword_frame = LabelFrame(self.root)
+        self.keyword_frame.config(text=' Keyword ', font=(ENGLISH, 12))
+        self.keyword_frame.pack(side=TOP, fill='x', padx=10, pady=5)
+
+        self.keyword_input_label = Label(self.keyword_frame)
+        self.keyword_input_label.config(
+            text='輸入搜尋關鍵字', font=(CHINESE, 14, 'bold'))
+        self.keyword_input_label.pack(side=TOP, pady=5)
+
+        self.keyword_input = StringVar(self.keyword_frame)
+        self.keyword_input_entry = Entry(self.keyword_frame)
+        self.keyword_input_entry.config(
+            font=(ENGLISH, 12), textvariable=self.keyword_input)
+        self.keyword_input_entry.pack(side=TOP, fill='x', padx=5, pady=10)
+
+    def __init_buttons__(self):
+        self.control_frame = Frame(self.root)
+        self.control_frame.pack(side=TOP, fill='x', padx=15, pady=0)
+
+        self.send_btn = Button(self.control_frame)
+        self.send_btn.config(text='開始執行', font=(CHINESE, 14, 'bold'),
+                              height=2, width=8, command=self.__send_button_onclick__)
+        self.send_btn.pack(side=TOP, padx=10, pady=5)
+
+    def run(self):
+        self.root.mainloop()
+
+class KeywordInput:
+    def __init__(self) -> None:
+        pass
+
+
 init(autoreset=True)
 
-keyword = "展覽設計公司"
+keyowrd_input = KeywordInputForm()
+keyowrd_input.run()
+
+if keyword == '':
+    exit(1)
+
 map_search_url = f"https://www.google.com.tw/maps/search/{keyword}"
 
 chrome_option = chromeOptions()
