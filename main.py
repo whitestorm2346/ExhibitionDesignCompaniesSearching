@@ -22,7 +22,7 @@ email_regex = r"""
     [a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?
 """
 
-def scroll_and_load(driver, scroll_pause_time=1) -> int:
+def scroll_and_load(driver, scroll_pause_time=2) -> int:
     scroll_element = driver.find_elements(By.CLASS_NAME, 'ecceSd')[1]
 
     last_height = driver.execute_script("return arguments[0].scrollHeight", scroll_element)
@@ -153,7 +153,6 @@ def print_company_info(company):
 
 ENGLISH = 'Times New Roman'
 CHINESE = '微軟正黑體'
-keyword = ''
 
 class KeywordInputForm:
     def __init__(self) -> None:
@@ -162,9 +161,6 @@ class KeywordInputForm:
         self.__init_buttons__()
 
     def __send_button_onclick__(self):
-        # TODO: implement the empty value checking
-        global keyword
-        keyword = self.keyword_input.get()
         print('send button onclick')
         self.root.destroy()
 
@@ -201,104 +197,107 @@ class KeywordInputForm:
 
     def run(self):
         self.root.mainloop()
-
-class KeywordInput:
-    def __init__(self) -> None:
-        pass
+        return self.keyword_input.get()
 
 
-init(autoreset=True)
 
-keyowrd_input = KeywordInputForm()
-keyowrd_input.run()
+def main(keyword):
+    map_search_url = f"https://www.google.com.tw/maps/search/{keyword}"
 
-if keyword == '':
-    exit(1)
+    chrome_option = chromeOptions()
+    chrome_option.add_argument('--log-level=3')
+    chrome_option.add_argument('--headless') 
+    # chrome_option.add_argument('--start-maximized') 
+    chrome_option.add_argument("--retry-on-network-failure")
+    chromedriver_autoinstaller.install()
+    driver = webdriver.Chrome(options=chrome_option)
 
-map_search_url = f"https://www.google.com.tw/maps/search/{keyword}"
+    driver.get(map_search_url)
+    WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, 'body')))
+    print(Fore.YELLOW + 'Web driver finished setting')
 
-chrome_option = chromeOptions()
-chrome_option.add_argument('--log-level=3')
-chrome_option.add_argument('--headless') 
-# chrome_option.add_argument('--start-maximized') 
-chrome_option.add_argument("--retry-on-network-failure")
-chromedriver_autoinstaller.install()
-driver = webdriver.Chrome(options=chrome_option)
+    companies = []
+    print(Fore.YELLOW + 'Start searching...')
 
-driver.get(map_search_url)
-WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.TAG_NAME, 'body')))
-print(Fore.YELLOW + 'Web driver finished setting')
+    while len(companies) <= 200:
+        companies_info = driver.find_elements(By.CLASS_NAME, 'Nv2PK')
 
-companies = []
-print(Fore.YELLOW + 'Start searching...')
+        for company_info in companies_info:
+            # Advertise Message
+            try: 
+                sponser = company_info.find_element(By.CLASS_NAME, 'kpih0e')
+                continue
+            except NoSuchElementException as e:
+                pass
 
-while len(companies) <= 200:
-    companies_info = driver.find_elements(By.CLASS_NAME, 'Nv2PK')
+            company_info = company_info.find_element(By.CLASS_NAME, 'lI9IFe')
 
-    for company_info in companies_info:
-        # Advertise Message
-        try: 
-            sponser = company_info.find_element(By.CLASS_NAME, 'kpih0e')
-            continue
-        except NoSuchElementException as e:
-            pass
+            try:
+                url = company_info.find_element(By.TAG_NAME, 'a').get_attribute('href')
+            except NoSuchElementException as e:
+                continue # if the company does not have the website
 
-        company_info = company_info.find_element(By.CLASS_NAME, 'lI9IFe')
+            name = company_info.find_element(By.CLASS_NAME, 'qBF1Pd').text
 
-        try:
-            url = company_info.find_element(By.TAG_NAME, 'a').get_attribute('href')
-        except NoSuchElementException as e:
-            continue # if the company does not have the website
+            try:
+                score = company_info.find_element(By.CLASS_NAME, 'MW4etd').text
+            except NoSuchElementException as e:
+                score = 'no comments'
 
-        name = company_info.find_element(By.CLASS_NAME, 'qBF1Pd').text
+            try:
+                phone = company_info.find_element(By.CLASS_NAME, 'UsdlK').text
+            except NoSuchElementException as e:
+                phone = 'null'
 
-        try:
-            score = company_info.find_element(By.CLASS_NAME, 'MW4etd').text
-        except NoSuchElementException as e:
-            score = 'no comments'
+            address_info = company_info.find_elements(By.CLASS_NAME, 'W4Efsd')[2].text.split('·')
 
-        try:
-            phone = company_info.find_element(By.CLASS_NAME, 'UsdlK').text
-        except NoSuchElementException as e:
-            phone = 'null'
+            # company's type
+            classification = address_info[0]
+            address = "".join(address_info[-1].split())
 
-        address_info = company_info.find_elements(By.CLASS_NAME, 'W4Efsd')[2].text.split('·')
+            company = {
+                "公司名稱": name,
+                "E-mail": "",
+                "網站": url,
+                "電話": phone,
+                "Google評分": score,
+                "地址": address
+            }
 
-        # company's type
-        classification = address_info[0]
-        address = "".join(address_info[-1].split())
+            if not company in companies:
+                print_company_info(company)
+                print('\n')
 
-        company = {
-            "公司名稱": name,
-            "E-mail": "",
-            "網站": url,
-            "電話": phone,
-            "Google評分": score,
-            "地址": address
-        }
+                companies.append(company)
 
-        if not company in companies:
-            print_company_info(company)
-            print('\n')
+        if scroll_and_load(driver):
+            break
 
-            companies.append(company)
+    results = []
 
-    if scroll_and_load(driver):
-        break
+    for company in companies:
+        company['E-mail'] = get_emails(driver, company['網站'])
 
-results = []
+        print_company_info(company)
+        print('\n')
 
-for company in companies:
-    company['E-mail'] = get_emails(driver, company['網站'])
-
-    print_company_info(company)
-    print('\n')
-
-    if company['E-mail'] != []:
-        results.append(company)
+        if company['E-mail'] != []:
+            results.append(company)
 
 
-driver.close()
+    driver.close()
 
-df = pd.DataFrame(results)
-df.to_excel(f'{keyword}.xlsx', index=False)
+    df = pd.DataFrame(results)
+    df.to_excel(f'{keyword}.xlsx', index=False)
+
+
+if __name__ == "__main__":
+    init(autoreset=True)
+
+    keyword_input_form = KeywordInputForm()
+    keyword = keyword_input_form.run()
+
+    if keyword == '':
+        print(Fore.LIGHTRED_EX + 'keyword cannot be empty')
+    else:
+        main(keyword)
